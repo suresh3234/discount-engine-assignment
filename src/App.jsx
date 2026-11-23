@@ -9,7 +9,7 @@ import { useState } from 'react'
 import CsvUploader from './components/CsvUploader.jsx'
 import DataTable from './components/DataTable.jsx'
 import ErrorBanner from './components/ErrorBanner.jsx'
-import { parseRulesCSV, parseCartCSV } from './engine/csvParser.js'
+import { parseRulesCSV, parseCartCSV } from './adapters/csvAdapter.js'
 import { processCart, cartTotal } from './engine/discountEngine.js'
 
 // ── Column definitions ───────────────────────────────────────────

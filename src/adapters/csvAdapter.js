@@ -1,9 +1,15 @@
 /**
- * csvParser.js
+ * csvAdapter.js
  *
- * Converts raw CSV text into the typed objects the discount engine expects.
- * Uses papaparse for reliable CSV parsing, then maps column names to the
- * internal data shapes.
+ * Input adapter: converts raw CSV text into the typed objects the
+ * discount engine expects (DiscountRule, CartItem).
+ *
+ * This is a thin adapter — it handles CSV-specific parsing and
+ * validation, then outputs the engine's canonical types. Adding a new
+ * input format (PDF, natural language, etc.) means writing a new
+ * adapter in this directory, not changing the engine.
+ *
+ * Uses PapaParse for reliable CSV parsing.
  *
  * Expected rules.csv columns:
  *   rule_id, scope, applies_to, type, value, stackable
