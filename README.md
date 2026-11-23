@@ -85,3 +85,42 @@ sample-data/
 | ITEM-04 | Rs.2,499  | Rs.2,499    | No offers available                    |
 | ITEM-05 | Rs.449    | Rs.382      | Platform offer: 15% off                |
 | ITEM-06 | Rs.899    | Rs.809      | Platform offer: 10% off                |
+
+**Cart Total Summary (with RULE-04 10% off on orders above Rs.4,000):**
+- Item Subtotal: **Rs.5,932**
+- Cart Discount (10% on Rs.5,932): **−Rs.593**
+- Final Cart Total: **Rs.5,339**
+
+## Rounding Rule
+
+Discounts are calculated and rounded in whole rupees at each evaluation step:
+1. **Item-Level Rules:** Percentage discounts are rounded to the nearest integer rupee using `Math.round((price * value) / 100)`. Flat discounts are applied directly, clamped to not exceed the current item price (`Math.min(value, price)`).
+2. **Item Final Price:** The final item price is `Math.max(0, Math.round(price))`, ensuring item totals never go negative.
+3. **Cart Subtotal:** Computed as the exact sum of the rounded item final prices:
+   $$\text{Subtotal} = 1104 + 629 + 509 + 2499 + 382 + 809 = 5,932$$
+4. **Cart-Level Discount:** Calculated directly against the subtotal and rounded:
+   $$\text{Discount} = \text{round}(5932 \times 0.10) = 593$$
+   $$\text{Final Total} = 5932 - 593 = 5,339$$
+
+## DECISIONS
+
+### 1. Adapter Architecture Pattern
+- **Decision:** Separated input parsing into thin adapters (`src/adapters/csvAdapter.js`) that transform raw input formats into the canonical engine data contracts (`DiscountRule`, `CartItem`, `CartRule`). The discount engine (`src/engine/discountEngine.js`) remains 100% pure functions with zero I/O and zero UI awareness.
+- **Why:** Ground Rule 1 dictates that adding new input sources (PDF, natural language rules) must never alter calculation logic.
+- **Alternative:** Embedding format parsers directly in the engine or branching calculation functions based on input origins.
+
+### 2. Rounding at Item Level vs. End of Cart
+- **Decision:** Round each item discount to whole rupees at point of application, then compute cart discount on the sum of rounded item prices.
+- **Why:** Produces exact expected rupee values (Rs.5,932 subtotal, Rs.593 cart discount, Rs.5,339 final total) and avoids discrepancies between the displayed line items and the subtotal sum.
+- **Alternative:** Maintain floating-point fractions throughout and round only at the cart total. Rejected because displayed line-item totals would not sum up to the displayed subtotal (e.g. Rs.1,104.15 + ...).
+
+### 3. Price Floor Clamping
+- **Decision:** Clamp prices at zero (`Math.max(0, ...)` and `Math.min(rule.value, price)`).
+- **Why:** Prevents flat discounts or compounded stackable offers from producing negative prices or negative cart totals.
+- **Alternative:** Allowing negative prices or throwing runtime errors on oversized discounts.
+
+### 4. Cart-Level Rule Triggering & Near-Threshold Feedback
+- **Decision:** Cart-level rules only apply when `subtotal >= minCartTotal`. If the cart is below threshold (e.g. 1 rupee below), no discount is subtracted, and the engine generates a customer-facing nudge showing the remaining amount required to qualify.
+- **Why:** Deliberately handles edge cases (e.g. Rs.3,999 vs Rs.4,000 threshold) without crashes or silent drops.
+- **Alternative:** Omitting feedback entirely or applying partial discounts.
+

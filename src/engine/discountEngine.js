@@ -35,6 +35,26 @@
  *   skippedRules:  string[]
  *   reasoning:     string   — customer-readable explanation
  * }
+ *
+ * CartRule {
+ *   ruleId:       string       — e.g. "RULE-04"
+ *   type:         "percentage" | "flat"
+ *   value:        number
+ *   minCartTotal: number       — minimum subtotal (inclusive) to trigger
+ * }
+ *
+ * CartDiscountResult {
+ *   subtotal:     number
+ *   discount:     number
+ *   finalTotal:   number
+ *   appliedRule:  string | null
+ *   reasoning:    string
+ * }
+ *
+ * Rounding rule:
+ *   Each discount amount is rounded to the nearest rupee (Math.round) at
+ *   the point of application.  The cart-level discount is then computed on
+ *   the sum of the already-rounded item final prices.
  */
 
 // ── Helpers (internal to the engine) ─────────────────────────────
@@ -51,7 +71,7 @@ function discountDesc(rule) {
   return 'discount applied'
 }
 
-// ── Exported functions ───────────────────────────────────────────
+// ── Item-level logic ─────────────────────────────────────────────
 
 /**
  * Returns true if the rule applies to this cart item.
@@ -188,6 +208,8 @@ export function applyDiscounts(item, rules) {
   }
 }
 
+// ── Cart-level logic ─────────────────────────────────────────────
+
 /**
  * Runs applyDiscounts across every item in the cart.
  * Returns an array of DiscountResult objects (empty array for an empty cart).
@@ -203,4 +225,79 @@ export function processCart(cartItems, rules) {
 export function cartTotal(results) {
   if (!results || results.length === 0) return 0
   return results.reduce((sum, r) => sum + r.finalPrice, 0)
+}
+
+/**
+ * Applies cart-level discount rules to the item subtotal.
+ * Returns a CartDiscountResult.
+ *
+ * Logic:
+ *   1. Filter to rules whose minCartTotal threshold is met (>=).
+ *   2. Among eligible rules, pick the one giving the largest saving.
+ *   3. If no rules are eligible, tell the customer how close they are.
+ */
+export function applyCartDiscount(subtotal, cartRules) {
+  if (!cartRules || cartRules.length === 0) {
+    return {
+      subtotal,
+      discount: 0,
+      finalTotal: subtotal,
+      appliedRule: null,
+      reasoning: '',
+    }
+  }
+
+  const eligible = cartRules.filter((r) => subtotal >= r.minCartTotal)
+  const ineligible = cartRules.filter((r) => subtotal < r.minCartTotal)
+
+  if (eligible.length === 0) {
+    // Show how close they are to the nearest threshold
+    const nearest = [...ineligible].sort(
+      (a, b) => a.minCartTotal - b.minCartTotal,
+    )[0]
+    const gap = nearest.minCartTotal - subtotal
+    const desc =
+      nearest.type === 'percentage'
+        ? `${nearest.value}% off`
+        : `Rs.${nearest.value} off`
+    return {
+      subtotal,
+      discount: 0,
+      finalTotal: subtotal,
+      appliedRule: null,
+      reasoning: `Add Rs.${gap} more to unlock cart discount (${desc} on orders above Rs.${nearest.minCartTotal})`,
+    }
+  }
+
+  // Pick the rule giving the largest saving
+  const sorted = [...eligible].sort((a, b) => {
+    const dA =
+      a.type === 'percentage'
+        ? Math.round((subtotal * a.value) / 100)
+        : Math.min(a.value, subtotal)
+    const dB =
+      b.type === 'percentage'
+        ? Math.round((subtotal * b.value) / 100)
+        : Math.min(b.value, subtotal)
+    return dB - dA
+  })
+
+  const winner = sorted[0]
+  const discount =
+    winner.type === 'percentage'
+      ? Math.round((subtotal * winner.value) / 100)
+      : Math.min(winner.value, subtotal)
+
+  const desc =
+    winner.type === 'percentage'
+      ? `${winner.value}% off`
+      : `Rs.${winner.value} off`
+
+  return {
+    subtotal,
+    discount,
+    finalTotal: subtotal - discount,
+    appliedRule: winner.ruleId,
+    reasoning: `Cart discount: ${desc} on orders above Rs.${winner.minCartTotal} (Rs.${discount} saved)`,
+  }
 }
