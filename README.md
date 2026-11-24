@@ -12,7 +12,7 @@ A discount evaluation engine that ingests discount rules and shopping cart items
 
 1. **Clone the repository and enter the directory**:
    ```bash
-   git clone <your-fork-repo-url>
+   git clone https://github.com/suresh3234/discount-engine-assignment.git
    cd discount-engine-assignment
    ```
 
