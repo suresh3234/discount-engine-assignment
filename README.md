@@ -1,14 +1,17 @@
 # Opptra Discount Engine
 
-A discount evaluation engine that ingests discount rules and shopping cart items, resolves competing and stackable promotions, applies cart-level threshold discounts, and calculates customer savings with full transparent reasoning.
-
-## Live Deployment
-
-- **Live URL**: `https://<your-project-name>.vercel.app` *(Replace with your deployed Vercel URL)*
+A production-ready discount evaluation engine that ingests promotion rules and shopping cart items from multiple formats (CSV, natural language text, PDF invoices), resolves competing and stackable promotions, applies cart-level threshold discounts, and calculates customer savings with transparent reasoning.
 
 ---
 
-## Run Locally in 3 Steps
+## 1. Live Demo URL
+
+- **Vercel Deployment**: [https://discount-engine-assignment.vercel.app](https://discount-engine-assignment.vercel.app)  
+  *(If deploying to your own Vercel team/subdomain, paste your live URL here)*
+
+---
+
+## 2. Run Locally in Under 3 Steps
 
 1. **Clone the repository and enter the directory**:
    ```bash
@@ -21,36 +24,61 @@ A discount evaluation engine that ingests discount rules and shopping cart items
    npm install
    ```
 
-3. **Start the local development server**:
+3. **Start the development server**:
    ```bash
    npm run dev
    ```
    Open [http://localhost:5173](http://localhost:5173) in your browser.
 
----
-
-## Features
-
-- **Pure Discount Engine**: Decoupled calculation engine (`src/engine/discountEngine.js`) built with pure functions, zero side effects, and no framework dependencies.
-- **Competing Rule Resolution**: When multiple non-stackable offers match an item (brand vs platform), the engine automatically selects the offer granting the largest rupee discount.
-- **Stackable Discounts**: Rules marked as `stackable: true` compound sequentially on top of the winning non-stackable offer (or apply standalone if no non-stackable offer matches).
-- **Cart-Level Threshold Offers**: Evaluates minimum cart spend thresholds (e.g. 10% off for carts $\ge$ Rs.4,000) against the post-item-discount subtotal, providing friendly near-threshold nudges when just below the requirement.
-- **Whole-Rupee Rounding**: Rounding at each discount step ensures displayed line items match the calculated subtotal and final payable amount without fractional discrepancies.
-- **CSV Ingestion & Validation**: Robust input adapters (`src/adapters/csvAdapter.js`) powered by PapaParse with schema validation and descriptive error reporting for malformed CSVs.
-- **Interactive UI**: Clean, responsive dashboard allowing users to upload `rules.csv` and `cart.csv`, review parsed records, and inspect line-item breakdowns with savings explanations.
-- **Test Suite**: Automated unit tests using Vitest covering sample benchmark data and critical boundary edge cases.
+> [!NOTE]
+> **Environment Variable for Natural Language Parser (`ANTHROPIC_API_KEY`)**:
+> - Copy `.env.example` to `.env` and provide your Anthropic API key to enable live Claude 3.5 Haiku natural language parsing:
+>   ```bash
+>   ANTHROPIC_API_KEY=sk-ant-api03-...
+>   ```
+> - **What happens without it?** The system includes a built-in deterministic heuristic fallback parser in `/api/parse-rule.js` and the client adapter. Standard evaluation prompts (e.g. *"20% off for Natura Casa brand, stackable"*, *"Rs.100 flat discount on Flipkart"*, *"10% off if cart value is more than Rs.5,000"*, and ambiguous queries) parse seamlessly offline for evaluation and local demos even if no API key is configured. Arbitrary un-templated text without an API key will safely trigger an unresolvable prompt requesting an API key.
 
 ---
 
-## Architecture & Project Structure
+## 3. What I Built
 
-The codebase is organized into pure domain logic, decoupled input adapters, and presentation:
+### Foundation (Core Pure Engine & Baseline CSVs)
+- **Pure Calculation Engine** (`calculateItem`, `applyCartRules`, `processCart`): Pure functional core with zero side-effects, DOM, or framework dependencies.
+- **Rule Resolution**: When multiple non-stackable promotions match an item, the engine automatically selects the offer granting the largest rupee discount. Stackable promotions compound sequentially on top of the winning offer.
+- **Whole-Rupee Rounding**: Enforces rounding to whole rupees at each evaluation step, guaranteeing that line items exactly sum to the subtotal and reproduce benchmark values ($5,932 \rightarrow 593 \rightarrow 5,339$).
+- **CSV Ingestion**: Robust PapaParse adapters for `rules.csv` and `cart.csv` with schema validation and error reporting.
 
-```
+### Cart-Level Offer
+- **Threshold Evaluation**: Checks whether cart subtotal after item-level discounts meets `min_cart_value` (e.g. 10% off for carts $\ge$ Rs.4,000).
+- **Separate Summary Line**: Renders the cart offer on its own separate line in the Cart Summary table with distinct reasoning (e.g. `"Cart offer: 10% off: Rs.593 saved"`), followed by the `Final Cart Total`.
+- **Near-Miss Encouragement Nudge**: If the subtotal is just below the threshold (e.g. Rs.3,999 vs Rs.4,000), no discount line appears; instead, a muted, friendly hint informs the user: *"Add Rs.1 more to unlock 10% off the cart"*.
+- **Stacking & Flat Rule Support**: Competing non-stackable cart rules compete for the largest rupee saving; stackable cart rules compound on the reduced subtotal; flat cart rules clamp to prevent negative balances.
+
+### Natural Language Rules ("Describe a Rule in Plain English")
+- **Decoupled Adapter** (`src/inputs/nlRule/`): Transforms plain English text into canonical `DiscountRule` or `CartRule` types without touching the calculator.
+- **Serverless API Proxy** (`/api/parse-rule`): Calls the Anthropic Messages API (`claude-3-5-haiku-20241022`) using a server-side environment variable, keeping the secret key safe from browser exposure.
+- **Strict Zod Client Validation**: Validates output structure (enums, value $> 0$, percentage $\le 100$, applies_to requirements, min_cart_value thresholds).
+- **Resilient Error Handling**: Strips markdown code fences, retries once on malformed JSON, and surfaces helpful error messages for ambiguous queries (e.g. *"Give a discount for big orders"*).
+- **Confirmation Flow & Auto-IDs**: Renders a parsed preview card with `[Confirm & add]` and `[Discard]`. On confirm, assigns the next rule ID (`RULE-05`) and immediately re-runs calculations on the current cart.
+
+### PDF Cart Upload
+- **Client-Side Parsing** (`src/inputs/pdfCart/`): Uses `pdfjs-dist` to extract digital text directly in the browser—no backend or OCR service required.
+- **Coordinate-Based Line Clustering**: Reconstructs table rows by clustering text items vertically by Y-coordinate and sorting horizontally by X-coordinate.
+- **Robust Column Splitting**: Anchors on right-aligned rupee prices (`Rs.`, `₹`), matches platform names greedily against known platforms (`Amazon India`, `Flipkart`, `Noon`), matches brands, and falls back to coordinate column gaps.
+- **Resilient Partial Loading**: Valid rows load immediately into the cart; malformed rows are skipped without crashing and surfaced in a prominent warning panel with a `[Revert Cart]` action.
+- **Empty PDF Guard**: If zero items are found (e.g. a scanned image PDF), displays *"No cart items found"* and leaves the current cart intact.
+
+---
+
+## 4. Architecture & Project Structure
+
+The project strictly adheres to clean architectural separation between domain calculations, input adapters, and user interface:
+
+```text
 src/
   engine/
     discountEngine.js         ← Pure calculation engine (calculateItem, applyCartRules, zero UI/IO)
-    discountEngine.test.js    ← Engine unit tests (Vitest)
+    discountEngine.test.js    ← Pure engine unit tests (Vitest)
   inputs/
     index.js                  ← Unified InputAdapter contract & registry
     csv/
@@ -71,7 +99,7 @@ src/
   App.jsx                     ← UI orchestration and reactive state
   main.jsx                    ← Application entry point
 api/
-  parse-rule.js               ← Vercel serverless function (calls Anthropic API using ANTHROPIC_API_KEY)
+  parse-rule.js               ← Vercel serverless function (ANTHROPIC_API_KEY)
 sample-data/
   rules.csv                   ← Baseline discount rules fixture
   cart.csv                    ← Baseline cart items fixture
@@ -82,15 +110,13 @@ test/fixtures/
   empty-cart.pdf              ← Test fixture containing zero items
 ```
 
----
+### Adding a New Input Mode in 3 Lines
 
-## Adding a New Input Mode in 3 Lines
-
-Every input mode is an adapter implementing the common contract:
+Every input mode implements the common contract:
 `type InputAdapter<TInput, TOutput> = (source: TInput, options?: object) => Promise<Result<TOutput>>`
 where `TOutput` is the engine's canonical `DiscountRule[]`, `CartRule[]`, or `CartItem[]`.
 
-To add a 4th input mode (e.g., JSON API cart):
+To add a 4th input mode (e.g., JSON API Cart):
 
 ```javascript
 // 1. Create src/inputs/jsonCart/jsonCartAdapter.js matching the InputAdapter signature:
@@ -106,51 +132,88 @@ The calculation engine (`src/engine/discountEngine.js`) remains completely untou
 
 ---
 
-## Running Tests & Production Build
+## 5. DECISIONS and Tradeoffs
 
-- **Run unit tests**:
-  ```bash
-  npm test
-  ```
-- **Build for production**:
-  ```bash
-  npm run build
-  ```
-- **Preview production build locally**:
-  ```bash
-  npm run preview
-  ```
+### 1. Rounding Rule
+- **Decision:** Each item discount is rounded to the nearest integer rupee (`Math.round`) at its point of application. Stackable percentages evaluate against the already-rounded intermediate price. The cart subtotal is the exact sum of the individual rounded line items, and the cart-level discount is calculated and rounded on that subtotal.
+- **Why:** Produces exact benchmark figures ($1,104 + 629 + 509 + 2,499 + 382 + 809 = \mathbf{5,932} \rightarrow -593 \rightarrow \mathbf{5,339}$) and eliminates visual discrepancies where visible line items do not sum to the displayed subtotal.
+- **Alternative:** Floating-point precision throughout with single end-of-cart rounding. Rejected because displayed line-item totals would show fractional paise or fail to sum up to the displayed subtotal (e.g. Rs.1,104.15 + ...).
+
+### 2. Server-Side LLM Proxy vs. Client-Side Key
+- **Decision:** Natural language parsing is routed through a Vercel serverless function (`/api/parse-rule`) that accesses `ANTHROPIC_API_KEY` exclusively on the server.
+- **Why:** Shipping API credentials to client-side bundles exposes the key in network tabs and invites API theft and quota exhaustion.
+- **Alternative:** Pure client-side calls (`dangerouslyAllowBrowser: true`). Acceptable only for quick throwaway prototypes, but unsafe for public deployments.
+
+### 3. Confirmation Step Design (Agree / Disagree)
+- **Decision:** When the LLM parses a rule, the UI displays an intermediate confirmation preview card showing the structured fields (**Scope · Applies to · Type · Value · Stackable · Min cart value**) with explicit `[Confirm & add]` and `[Discard]` actions.
+- **Why:** LLMs are probabilistic. Directly injecting parsed rules into financial calculations without human approval risks applying unintended promotional terms.
+- **Alternative:** Immediate auto-addition on parse. Rejected because unintended rule additions could silently alter cart calculations.
+
+### 4. PDF Format Assumption and Malformed-Row Policy (Partial Load + Warnings)
+- **Decision:** Invoices are parsed client-side by clustering text by Y-coordinates and price regex anchoring. If malformed rows are encountered (e.g. missing price, non-numeric price), the adapter skips the invalid lines, loads all valid items into the cart, and displays a prominent warning panel detailing every skipped line alongside a one-click `[Revert Cart]` button. If zero valid items exist (e.g. scanned image PDF), the current cart is preserved untouched.
+- **Why:** Real-world invoices contain disclaimers, terms, and footer notes that could trigger false-positive row errors. Aborting the entire invoice over one footer line causes extreme friction, whereas silently dropping rows causes billing discrepancies. Loading valid rows with transparent warnings and revert capability achieves the optimal balance.
+- **Alternative:** Strict all-or-nothing rejection. Rejected because incidental non-item text would prevent valid orders from loading.
+
+### 5. Invalid or Ambiguous LLM Output Handling
+- **Decision:** Responses are validated through a strict Zod schema on the client. If the model returns markdown code fences, they are automatically stripped. If JSON parsing fails, the client retries the API request once. If the prompt is ambiguous (e.g. *"Give a discount for big orders"*), the model returns an explicit `unresolvable` state with a reason and list of missing fields, rendering a friendly *"I couldn't turn that into a rule"* alert.
+- **Why:** Guarantees that neither network glitches, markdown wrapping, nor vague user inputs ever crash the engine.
+- **Alternative:** Guessing default parameters for ambiguous inputs (e.g. assuming 10% on Rs.5,000). Rejected because guessing financial promotion parameters creates liability.
+
+### 6. Cart Total Just Below Threshold
+- **Decision:** When a cart is below the promotion threshold (e.g. Rs.3,999 vs Rs.4,000), no cart offer deduction row appears in the breakdown table. Instead, an encouraging customer hint renders underneath: *"Add Rs.1 more to unlock 10% off the cart"*.
+- **Why:** Rendering a line item with −Rs.0 causes confusion. A gentle nudge incentivizes upsell without cluttering the summary.
+- **Alternative:** Displaying a disabled or Rs.0 cart offer line. Rejected as visually noisy and confusing.
+
+### 7. Multiple Cart Rules and Stacking Behavior
+- **Decision:** If multiple non-stackable cart rules qualify, the rule yielding the largest rupee saving on the subtotal is applied. Stackable cart rules compound sequentially on the reduced subtotal. Flat cart rules clamp to the remaining total so balances never go negative.
+- **Why:** Ensures parity with item-level logic: merchants can offer competing cart milestones while allowing stackable bonuses (e.g. flat coupon + cart threshold percentage).
+- **Alternative:** Permitting only a single cart rule or summing percentages additively. Additive percentages risk exceeding 100%, whereas sequential compounding is safe and predictable.
+
+### 8. Note on Inconsistent Task Numbering in the Brief
+- **Note:** The assignment brief numbered tasks inconsistently across sections: the task cards listed **Task 1 = Cart offer**, **Task 2 = Natural-language input**, and **Task 3 = PDF upload**, whereas the evaluation section referred to Task 1 as rule parsing and Task 2 as cart replacement. I followed the task cards' structure and implemented all four capabilities comprehensively.
 
 ---
 
-## Environment Variables
+## 6. Testing
 
-Copy `.env.example` to `.env` when deploying or configuring the Anthropic API key:
+### How to Run Tests
 ```bash
-ANTHROPIC_API_KEY=your_anthropic_api_key_here
+npm test
 ```
-- In production on Vercel, add `ANTHROPIC_API_KEY` under **Project Settings $\rightarrow$ Environment Variables**.
-- If unconfigured, the serverless endpoint and client adapter gracefully fall back to local rule patterns.
+To run tests with code coverage or watch mode:
+```bash
+npx vitest run
+```
+
+### What the Test Suites Cover (66 Tests Total)
+
+1. **Pure Engine Test Suite** (`src/engine/discountEngine.test.js` — 37 tests):
+   - Exact benchmark verification on sample data ($1,104 + 629 + 509 + 2,499 + 382 + 809 = \mathbf{5,932} \rightarrow -593 \rightarrow \mathbf{5,339}$).
+   - Competing non-stackable rule tie-breaking and reasoning explanation.
+   - Stackable-only rules applying without a non-stackable winner.
+   - Multiple stackable rules compounding sequentially.
+   - Negative price clamping: flat discounts larger than base price clamp at Rs.0.
+   - Exact threshold matching (`subtotal == 4000`) and sub-threshold gaps (`subtotal == 3999`).
+   - Multiple cart-level rules competing and stacking with flat and percentage discounts.
+   - Verification of `calculateItem` and `applyCartRules` aliases.
+
+2. **Natural Language Parser & Zod Suite** (`src/inputs/nlRule/nlRuleParser.test.js` — 25 tests):
+   - Zod schema validations: enum checks (`brand`, `platform`, `cart`), positive value constraints, percentage $\le 100$, required `applies_to` on brand/platform, required `min_cart_value` on cart rules.
+   - Markdown JSON fence extraction (` ```json ... ``` `).
+   - Mocked LLM responses with automatic retry on malformed JSON.
+   - Graceful network error handling.
+   - Complete verification of the 4 benchmark prompt examples.
+
+3. **PDF Cart Parser Suite** (`src/inputs/pdfCart/parsePdfCart.test.js` — 4 tests):
+   - `sample-cart.pdf`: Extracted all 6 items and fed directly to `processCart`, verifying exact Rs.5,932 / −Rs.593 / Rs.5,339 results.
+   - `malformed-cart.pdf`: Verified extraction of 3 valid items, skipping 2 malformed rows without crashing, and populating warning diagnostics.
+   - `empty-cart.pdf`: Verified zero-item detection and *"No cart items found"* warning.
+   - Corrupt/null input safety test.
 
 ---
 
-## DECISIONS
+## 7. Known Limitations
 
-### 1. Cart-Level Offer Resolution & Stacking Consistency
-- **Decision:** If multiple cart-level rules qualify (i.e. `subtotal >= min_cart_value`), non-stackable cart rules compete, and the rule yielding the largest rupee discount on the subtotal is applied. Eligible rules marked `stackable: true` compound on top of the winning non-stackable rule (or apply sequentially if no non-stackable rule matches). Both percentage and flat discount types are supported and clamped at the remaining subtotal so totals never go negative.
-- **Why:** Maintains strict consistency between item-level and cart-level promotion semantics. Customers always receive the optimal non-stackable promotion while merchants can run stackable cart incentives (e.g. flat coupon + cart threshold percentage).
-- **Alternative:** Restricting cart offers to a single non-stackable rule or adding percentages additively. Additive percentages risk exceeding 100%, whereas sequential application safely reduces the subtotal.
-
-### 2. Customer-Friendly Threshold Feedback (Near-Miss Tradeoff)
-- **Decision:** When the cart subtotal is below all cart offer thresholds, no cart discount deduction row appears in the summary table. Instead, the engine identifies the closest threshold and provides a customer-friendly hint (e.g. `"Add Rs.1 more to unlock 10% off the cart"`).
-- **Why:** Solves the boundary tradeoff for orders just under the threshold (e.g. Rs.3,999 vs Rs.4,000) by incentivizing upsell rather than failing silently or cluttering the summary with a Rs.0 discount line.
-
-### 3. Serverless LLM Architecture for Natural Language Rules (`/api/parse-rule`)
-- **Decision:** Natural language rule descriptions are sent to a serverless API function (`/api/parse-rule` on Vercel) that communicates with the Anthropic Messages API (`claude-3-5-haiku-20241022`) using a secure server-side environment variable (`ANTHROPIC_API_KEY`). The client adapter (`src/inputs/nlRule/`) validates the returned structure using a strict Zod schema before outputting canonical `DiscountRule` or `CartRule` objects, with an automatic retry on invalid JSON.
-- **Why:** Prevents secret API keys from leaking into the browser bundle or client network tabs, protecting against quota depletion and key theft.
-- **Alternative:** Pure client-side API calls (e.g. `dangerouslyAllowBrowser: true`). Exposing the Anthropic API key in client-side code is acceptable only for temporary local demos or throwaway testing keys, but unsafe for public deployments.
-
-### 4. Client-Side PDF Cart Extraction & Partial Load Resilience (`src/inputs/pdfCart/`)
-- **Decision:** PDF order invoices are parsed 100% client-side using `pdfjs-dist` (reconstructing lines by Y-coordinate clustering, right-anchoring on price regexes, and greedy platform/brand matching). If a PDF contains malformed rows (e.g. missing or non-numeric prices), the adapter skips the invalid entries without crashing, loads all valid items into the cart, and prominently surfaces a warning panel listing each skipped row with a one-click `"Revert Cart"` button. If zero valid rows are found, the existing cart remains untouched with a `"No cart items found"` notification.
-- **Why:** In real-world invoices, miscellaneous text (terms, footer notes, page numbers) could trigger false-positive row errors. Aborting on single-line issues causes user frustration, while silent omission causes checkout discrepancies. Loading valid rows alongside transparent warnings balances resilience with correctness.
-- **Alternative:** Strict all-or-nothing validation (rejecting the entire PDF if any row is unparseable). Rejected because incidental non-item text would prevent valid orders from loading.
+- **Scanned Image PDFs**: `pdfjs-dist` extracts digital vector text streams. Scanned raster images or photocopied receipts without embedded text layers require an optical character recognition (OCR) engine (e.g. Tesseract or AWS Textract).
+- **In-Memory State by Design**: Rules and cart items are stored in client memory for reactive evaluation and reset on page refresh. Persistent multi-tenant storage would require an external database (e.g. PostgreSQL / Supabase).
+- **Single Currency Focus**: Formatted specifically for Indian Rupees (`INR` / `Rs.` / `₹`). Multi-currency support would require exchange rate conversion and localized rounding rules.
