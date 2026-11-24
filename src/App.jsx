@@ -10,7 +10,9 @@ import CsvUploader from './components/CsvUploader.jsx'
 import DataTable from './components/DataTable.jsx'
 import ErrorBanner from './components/ErrorBanner.jsx'
 import NlRuleInput from './components/NlRuleInput.jsx'
+import PdfUploader from './components/PdfUploader.jsx'
 import { parseRulesCSV, parseCartCSV } from './adapters/csvAdapter.js'
+import { parsePdfCart } from './inputs/pdfCart/parsePdfCart.js'
 import {
   processCart,
   cartTotal,
@@ -219,9 +221,11 @@ export default function App() {
   const [cartItems, setCartItems] = useState([])
   const [cartErrors, setCartErrors] = useState([])
   const [cartFileName, setCartFileName] = useState('')
-
-  const [results, setResults] = useState(null)
-  const [cartDiscountResult, setCartDiscountResult] = useState(null)
+  const [cartMode, setCartMode] = useState('csv') // 'csv' | 'pdf'
+  const [pdfLoading, setPdfLoading] = useState(false)
+  const [pdfSkipped, setPdfSkipped] = useState([])
+  const [pdfWarnings, setPdfWarnings] = useState([])
+  const [previousCart, setPreviousCart] = useState(null)
 
   // ── Handlers ──
 
@@ -240,8 +244,76 @@ export default function App() {
     setCartItems(data)
     setCartErrors(errors)
     setCartFileName(fileName)
+    setPdfSkipped([])
+    setPdfWarnings([])
+    setPreviousCart(null)
     setResults(null)
     setCartDiscountResult(null)
+  }
+
+  async function handlePdfLoad(file) {
+    setPdfLoading(true)
+    setPdfWarnings([])
+    setPdfSkipped([])
+    setCartErrors([])
+
+    try {
+      const activeBrands = rules.filter((r) => r.scope === 'brand').map((r) => r.appliesTo)
+      const { items, skipped, warnings } = await parsePdfCart(file, {
+        knownBrands: activeBrands,
+      })
+
+      if (items.length === 0) {
+        setCartErrors(['No cart items found: the PDF did not contain any valid cart rows. Current cart left untouched.'])
+        setPdfLoading(false)
+        return
+      }
+
+      // Save previous cart state in case user cancels / reverts
+      setPreviousCart(cartItems)
+
+      // Replace current cart
+      setCartItems(items)
+      setCartFileName(file.name)
+      setPdfSkipped(skipped)
+      setPdfWarnings(warnings)
+
+      // Automatically re-run the engine on the new cart with active rules
+      if (rules.length > 0) {
+        const res = processCart(items, rules)
+        setResults(res)
+        const subtotal = cartTotal(res)
+        setCartDiscountResult(
+          cartRules.length > 0 ? applyCartDiscount(subtotal, cartRules) : null,
+        )
+      } else {
+        setResults(null)
+        setCartDiscountResult(null)
+      }
+    } catch (err) {
+      setCartErrors([`Error processing PDF: ${err.message}`])
+    } finally {
+      setPdfLoading(false)
+    }
+  }
+
+  function handleRevertCart() {
+    if (!previousCart) return
+    setCartItems(previousCart)
+    setPdfSkipped([])
+    setPdfWarnings([])
+    setPreviousCart(null)
+    if (rules.length > 0 && previousCart.length > 0) {
+      const res = processCart(previousCart, rules)
+      setResults(res)
+      const subtotal = cartTotal(res)
+      setCartDiscountResult(
+        cartRules.length > 0 ? applyCartDiscount(subtotal, cartRules) : null,
+      )
+    } else {
+      setResults(null)
+      setCartDiscountResult(null)
+    }
   }
 
   function handleCalculate() {
@@ -350,20 +422,130 @@ export default function App() {
 
           {/* Cart upload */}
           <div style={S.section}>
-            <div style={S.sectionTitle}>Cart Items</div>
-            <CsvUploader
-              label="cart.csv"
-              description="Upload your cart CSV"
-              onLoad={handleCartLoad}
-              hasData={cartItems.length > 0}
-              fileName={cartFileName}
-            />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.7rem' }}>
+              <div style={S.sectionTitle}>Cart Items</div>
+              <div style={{ display: 'flex', gap: '0.3rem' }}>
+                <button
+                  type="button"
+                  style={{
+                    padding: '0.25rem 0.65rem',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    background: cartMode === 'csv' ? '#131A48' : '#f0f0f4',
+                    color: cartMode === 'csv' ? '#fff' : '#666',
+                    border: 'none',
+                    borderRadius: 4,
+                    cursor: 'pointer',
+                  }}
+                  onClick={() => setCartMode('csv')}
+                >
+                  CSV (.csv)
+                </button>
+                <button
+                  type="button"
+                  style={{
+                    padding: '0.25rem 0.65rem',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    background: cartMode === 'pdf' ? '#131A48' : '#f0f0f4',
+                    color: cartMode === 'pdf' ? '#fff' : '#666',
+                    border: 'none',
+                    borderRadius: 4,
+                    cursor: 'pointer',
+                  }}
+                  onClick={() => setCartMode('pdf')}
+                >
+                  PDF (.pdf)
+                </button>
+              </div>
+            </div>
+
+            {cartMode === 'csv' ? (
+              <CsvUploader
+                label="cart.csv"
+                description="Upload your cart CSV"
+                onLoad={handleCartLoad}
+                hasData={cartItems.length > 0 && cartFileName.endsWith('.csv')}
+                fileName={cartFileName}
+              />
+            ) : (
+              <PdfUploader
+                onPdfSelect={handlePdfLoad}
+                loading={pdfLoading}
+                hasData={cartItems.length > 0 && cartFileName.endsWith('.pdf')}
+                fileName={cartFileName}
+              />
+            )}
+
             <ErrorBanner errors={cartErrors} />
+
+            {/* Prominent Warning Panel for Skipped / Malformed Rows in PDF */}
+            {pdfSkipped.length > 0 && (
+              <div
+                style={{
+                  background: '#fffbeb',
+                  border: '1px solid #fde68a',
+                  borderRadius: 6,
+                  padding: '0.75rem 1rem',
+                  marginTop: '0.75rem',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    marginBottom: 4,
+                  }}
+                >
+                  <strong style={{ color: '#92400e', fontSize: 12 }}>
+                    ⚠️ Partially Parsed PDF: {pdfSkipped.length} malformed row
+                    {pdfSkipped.length > 1 ? 's' : ''} skipped
+                  </strong>
+                  {previousCart && previousCart.length > 0 && (
+                    <button
+                      type="button"
+                      style={{
+                        background: '#fff',
+                        border: '1px solid #d97706',
+                        color: '#d97706',
+                        fontSize: 10,
+                        padding: '0.2rem 0.5rem',
+                        borderRadius: 4,
+                        cursor: 'pointer',
+                        fontWeight: 700,
+                      }}
+                      onClick={handleRevertCart}
+                    >
+                      Revert Cart
+                    </button>
+                  )}
+                </div>
+                <div style={{ fontSize: 11, color: '#b45309', marginBottom: 4 }}>
+                  Valid items were loaded into the cart. Skipped entries:
+                </div>
+                <ul
+                  style={{
+                    margin: 0,
+                    paddingLeft: '1.2rem',
+                    fontSize: 11,
+                    color: '#78350f',
+                  }}
+                >
+                  {pdfSkipped.map((s, idx) => (
+                    <li key={idx} style={{ marginBottom: 2 }}>
+                      <code>{s.line || '(blank)'}</code> — <em>{s.reason}</em>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             {cartItems.length > 0 && (
               <div style={{ marginTop: '0.75rem' }}>
                 <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>
                   {cartItems.length} item{cartItems.length > 1 ? 's' : ''}{' '}
-                  loaded
+                  loaded {cartFileName ? `(${cartFileName})` : ''}
                 </div>
                 <DataTable columns={CART_COLUMNS} rows={cartItems} />
               </div>
