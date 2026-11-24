@@ -59,7 +59,7 @@
 
 // ── Helpers (internal to the engine) ─────────────────────────────
 
-const normalise = (s) => s.trim().toLowerCase()
+const normalise = (s) => (s ? String(s).trim().toLowerCase() : '')
 
 function ruleLabel(rule) {
   return rule.scope === 'brand' ? 'Brand offer' : 'Platform offer'
@@ -92,9 +92,9 @@ export function ruleMatchesItem(item, rule) {
  * Clamps flat discounts so they never exceed the remaining price.
  */
 export function calculateDiscountAmount(price, rule) {
-  if (price <= 0) return 0
+  if (!rule || price <= 0) return 0
   if (rule.type === 'percentage') {
-    return Math.round((price * rule.value) / 100)
+    return Math.min(price, Math.round((price * rule.value) / 100))
   }
   if (rule.type === 'flat') {
     return Math.min(rule.value, price)
@@ -114,6 +114,22 @@ export function calculateDiscountAmount(price, rule) {
  *      applied and — when rules competed — why.
  */
 export function applyDiscounts(item, rules) {
+  if (!item) return null
+  if (!rules || rules.length === 0) {
+    return {
+      itemId: item.itemId,
+      product: item.product,
+      brand: item.brand,
+      platform: item.platform,
+      basePrice: item.basePrice,
+      finalPrice: item.basePrice,
+      totalDiscount: 0,
+      appliedRules: [],
+      skippedRules: [],
+      reasoning: 'No offers available',
+    }
+  }
+
   const matchingRules = rules.filter((r) => ruleMatchesItem(item, r))
 
   // No rules match — return base price with explanation

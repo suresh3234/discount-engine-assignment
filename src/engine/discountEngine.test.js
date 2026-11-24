@@ -188,7 +188,7 @@ describe('applyCartDiscount', () => {
     expect(r.appliedRule).toBe('RULE-04')
   })
 
-  it('cart total 1 rupee below threshold → does not apply, shows gap', () => {
+  it('cart total 1 rupee below threshold → does not apply and no cart row (discount is 0, appliedRule is null)', () => {
     const r = applyCartDiscount(3999, CART_RULES)
     expect(r.discount).toBe(0)
     expect(r.finalTotal).toBe(3999)
@@ -283,6 +283,23 @@ describe('edge cases', () => {
     const r = applyDiscounts(item, rules)
     expect(r.finalPrice).toBe(0)
     expect(r.totalDiscount).toBe(50)
+  })
+
+  it('handles null or empty rules safely without throwing', () => {
+    const item = { itemId: 'TEST', product: 'Test', brand: 'B', platform: 'P', basePrice: 500 }
+    expect(applyDiscounts(item, null)).toEqual({
+      itemId: 'TEST',
+      product: 'Test',
+      brand: 'B',
+      platform: 'P',
+      basePrice: 500,
+      finalPrice: 500,
+      totalDiscount: 0,
+      appliedRules: [],
+      skippedRules: [],
+      reasoning: 'No offers available',
+    })
+    expect(applyDiscounts(null, RULES)).toBeNull()
   })
 
   it('non-stackable winner + stackable that together exceed price → clamps at 0', () => {
