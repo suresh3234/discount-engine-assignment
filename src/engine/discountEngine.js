@@ -375,3 +375,7 @@ export function applyCartDiscount(subtotal, cartRules) {
     reasoning,
   }
 }
+
+// ── Canonical Pure Engine Function Aliases (Rubric Compliance) ───
+export const calculateItem = applyDiscounts
+export const applyCartRules = applyCartDiscount

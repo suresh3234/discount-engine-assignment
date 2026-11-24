@@ -14,6 +14,8 @@ import {
   processCart,
   cartTotal,
   applyCartDiscount,
+  calculateItem,
+  applyCartRules,
 } from './discountEngine.js'
 import { parseRulesCSV, parseCartCSV } from '../adapters/csvAdapter.js'
 
@@ -377,5 +379,11 @@ describe('full pipeline — sample-data/*.csv', () => {
     const cd = applyCartDiscount(subtotal, cartRules)
     expect(cd.discount).toBe(593)
     expect(cd.finalTotal).toBe(5339)
+
+    // Verify calculateItem and applyCartRules pure function aliases
+    const singleResult = calculateItem(cartItems[0], itemRules)
+    expect(singleResult.finalPrice).toBe(1104)
+    const cartRulesResult = applyCartRules(subtotal, cartRules)
+    expect(cartRulesResult.finalTotal).toBe(5339)
   })
 })

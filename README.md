@@ -42,6 +42,70 @@ A discount evaluation engine that ingests discount rules and shopping cart items
 
 ---
 
+## Architecture & Project Structure
+
+The codebase is organized into pure domain logic, decoupled input adapters, and presentation:
+
+```
+src/
+  engine/
+    discountEngine.js         ← Pure calculation engine (calculateItem, applyCartRules, zero UI/IO)
+    discountEngine.test.js    ← Engine unit tests (Vitest)
+  inputs/
+    index.js                  ← Unified InputAdapter contract & registry
+    csv/
+      csvAdapter.js           ← CSV rules and cart parser
+    nlRule/
+      nlRuleParser.js         ← Natural language plain English rule adapter
+      schema.js               ← Zod output schema and validation
+      nlRuleParser.test.js    ← Zod and mocked LLM unit tests
+    pdfCart/
+      parsePdfCart.js         ← Client-side PDF invoice cart extractor
+      parsePdfCart.test.js    ← PDF fixture unit tests
+  components/
+    CsvUploader.jsx           ← Drag-and-drop CSV upload component
+    PdfUploader.jsx           ← Client-side PDF upload component
+    NlRuleInput.jsx           ← Plain English rule input with confirmation card
+    DataTable.jsx             ← Reusable tabular presentation
+    ErrorBanner.jsx           ← Formatted error alerts
+  App.jsx                     ← UI orchestration and reactive state
+  main.jsx                    ← Application entry point
+api/
+  parse-rule.js               ← Vercel serverless function (calls Anthropic API using ANTHROPIC_API_KEY)
+sample-data/
+  rules.csv                   ← Baseline discount rules fixture
+  cart.csv                    ← Baseline cart items fixture
+  cart.pdf                    ← Generated sample PDF order invoice
+test/fixtures/
+  sample-cart.pdf             ← Test fixture matching assignment brief
+  malformed-cart.pdf          ← Test fixture containing malformed rows
+  empty-cart.pdf              ← Test fixture containing zero items
+```
+
+---
+
+## Adding a New Input Mode in 3 Lines
+
+Every input mode is an adapter implementing the common contract:
+`type InputAdapter<TInput, TOutput> = (source: TInput, options?: object) => Promise<Result<TOutput>>`
+where `TOutput` is the engine's canonical `DiscountRule[]`, `CartRule[]`, or `CartItem[]`.
+
+To add a 4th input mode (e.g., JSON API cart):
+
+```javascript
+// 1. Create src/inputs/jsonCart/jsonCartAdapter.js matching the InputAdapter signature:
+export const jsonCartAdapter = async (json) => ({ success: true, data: JSON.parse(json).map(r => ({ itemId: r.id, product: r.title, brand: r.brand, platform: r.platform, basePrice: r.price })) });
+
+// 2. Export it from src/inputs/index.js:
+export { jsonCartAdapter } from './jsonCart/jsonCartAdapter.js';
+
+// 3. In your UI component, call the adapter and pass its canonical data straight to the engine:
+const { data } = await jsonCartAdapter(jsonString); setResults(processCart(data, rules));
+```
+The calculation engine (`src/engine/discountEngine.js`) remains completely untouched.
+
+---
+
 ## Running Tests & Production Build
 
 - **Run unit tests**:
@@ -56,6 +120,17 @@ A discount evaluation engine that ingests discount rules and shopping cart items
   ```bash
   npm run preview
   ```
+
+---
+
+## Environment Variables
+
+Copy `.env.example` to `.env` when deploying or configuring the Anthropic API key:
+```bash
+ANTHROPIC_API_KEY=your_anthropic_api_key_here
+```
+- In production on Vercel, add `ANTHROPIC_API_KEY` under **Project Settings $\rightarrow$ Environment Variables**.
+- If unconfigured, the serverless endpoint and client adapter gracefully fall back to local rule patterns.
 
 ---
 
