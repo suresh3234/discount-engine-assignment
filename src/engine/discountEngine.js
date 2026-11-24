@@ -248,30 +248,35 @@ export function cartTotal(results) {
  * Returns a CartDiscountResult.
  *
  * Logic:
- *   1. Filter to rules whose minCartTotal threshold is met (>=).
- *   2. Among eligible rules, pick the one giving the largest saving.
- *   3. If no rules are eligible, tell the customer how close they are.
+ *   1. Filter to rules whose min_cart_value / minCartTotal threshold is met (>=).
+ *   2. Among eligible NON-stackable rules, pick the one giving the largest rupee saving.
+ *   3. Apply any eligible stackable cart rules on top of that reduced total.
+ *   4. If no rules are eligible, return discount 0 with a near-threshold hint.
  */
 export function applyCartDiscount(subtotal, cartRules) {
-  if (!cartRules || cartRules.length === 0) {
+  if (subtotal <= 0 || !cartRules || cartRules.length === 0) {
     return {
-      subtotal,
+      subtotal: Math.max(0, subtotal || 0),
       discount: 0,
-      finalTotal: subtotal,
+      finalTotal: Math.max(0, subtotal || 0),
       appliedRule: null,
+      appliedRules: [],
       reasoning: '',
     }
   }
 
-  const eligible = cartRules.filter((r) => subtotal >= r.minCartTotal)
-  const ineligible = cartRules.filter((r) => subtotal < r.minCartTotal)
+  const getThreshold = (r) =>
+    r.minCartValue !== undefined ? r.minCartValue : r.minCartTotal
+
+  const eligible = cartRules.filter((r) => subtotal >= getThreshold(r))
+  const ineligible = cartRules.filter((r) => subtotal < getThreshold(r))
 
   if (eligible.length === 0) {
     // Show how close they are to the nearest threshold
     const nearest = [...ineligible].sort(
-      (a, b) => a.minCartTotal - b.minCartTotal,
+      (a, b) => getThreshold(a) - getThreshold(b),
     )[0]
-    const gap = nearest.minCartTotal - subtotal
+    const gap = getThreshold(nearest) - subtotal
     const desc =
       nearest.type === 'percentage'
         ? `${nearest.value}% off`
@@ -281,39 +286,92 @@ export function applyCartDiscount(subtotal, cartRules) {
       discount: 0,
       finalTotal: subtotal,
       appliedRule: null,
-      reasoning: `Add Rs.${gap} more to unlock cart discount (${desc} on orders above Rs.${nearest.minCartTotal})`,
+      appliedRules: [],
+      reasoning: `Add Rs.${gap} more to unlock ${desc} off the cart (on orders above Rs.${getThreshold(nearest)})`,
     }
   }
 
-  // Pick the rule giving the largest saving
-  const sorted = [...eligible].sort((a, b) => {
-    const dA =
-      a.type === 'percentage'
-        ? Math.round((subtotal * a.value) / 100)
-        : Math.min(a.value, subtotal)
-    const dB =
-      b.type === 'percentage'
-        ? Math.round((subtotal * b.value) / 100)
-        : Math.min(b.value, subtotal)
-    return dB - dA
-  })
+  const calcSaving = (amt, rule) => {
+    if (amt <= 0) return 0
+    if (rule.type === 'percentage') {
+      return Math.min(amt, Math.round((amt * rule.value) / 100))
+    }
+    if (rule.type === 'flat') {
+      return Math.min(rule.value, amt)
+    }
+    return 0
+  }
 
-  const winner = sorted[0]
-  const discount =
-    winner.type === 'percentage'
-      ? Math.round((subtotal * winner.value) / 100)
-      : Math.min(winner.value, subtotal)
+  const nonStackable = eligible.filter((r) => !r.stackable)
+  const stackable = eligible.filter((r) => r.stackable)
 
-  const desc =
-    winner.type === 'percentage'
-      ? `${winner.value}% off`
-      : `Rs.${winner.value} off`
+  // Pick non-stackable rule with largest rupee saving on subtotal
+  let winner = null
+  let skipped = []
+
+  if (nonStackable.length > 0) {
+    const sorted = [...nonStackable].sort(
+      (a, b) => calcSaving(subtotal, b) - calcSaving(subtotal, a),
+    )
+    winner = sorted[0]
+    skipped = sorted.slice(1)
+  }
+
+  let currentTotal = subtotal
+  const appliedRules = []
+  const appliedDescs = []
+
+  if (winner) {
+    const d = calcSaving(currentTotal, winner)
+    currentTotal = Math.max(0, currentTotal - d)
+    appliedRules.push(winner.ruleId)
+    const desc =
+      winner.type === 'percentage'
+        ? `${winner.value}% off`
+        : `Rs.${winner.value} off`
+    appliedDescs.push(desc)
+  }
+
+  for (const rule of stackable) {
+    const d = calcSaving(currentTotal, rule)
+    if (d > 0) {
+      currentTotal = Math.max(0, currentTotal - d)
+      appliedRules.push(rule.ruleId)
+      const desc =
+        rule.type === 'percentage'
+          ? `${rule.value}% off`
+          : `Rs.${rule.value} off`
+      appliedDescs.push(`${desc} (stackable)`)
+    }
+  }
+
+  const finalTotal = Math.max(0, Math.round(currentTotal))
+  const discount = subtotal - finalTotal
+
+  let reasoning = ''
+  if (winner && skipped.length > 0) {
+    const winnerDesc =
+      winner.type === 'percentage'
+        ? `${winner.value}% off`
+        : `Rs.${winner.value} off`
+    const stackPart =
+      appliedDescs.length > 1
+        ? ` + ${appliedDescs.slice(1).join(' + ')}`
+        : ''
+    reasoning = `Cart offer: you got ${winnerDesc}${stackPart} (beats ${skipped.map((r) => (r.type === 'percentage' ? `${r.value}% off` : `Rs.${r.value} off`)).join(', ')}) (Rs.${discount} saved)`
+  } else if (appliedDescs.length === 1) {
+    reasoning = `Cart offer: ${appliedDescs[0]}: Rs.${discount} saved`
+  } else {
+    reasoning = `Cart offer: ${appliedDescs.join(' + ')}: Rs.${discount} saved`
+  }
 
   return {
     subtotal,
     discount,
-    finalTotal: subtotal - discount,
-    appliedRule: winner.ruleId,
-    reasoning: `Cart discount: ${desc} on orders above Rs.${winner.minCartTotal} (Rs.${discount} saved)`,
+    finalTotal,
+    appliedRule: appliedRules[0] || null,
+    appliedRules,
+    skippedRules: skipped.map((r) => r.ruleId),
+    reasoning,
   }
 }

@@ -420,7 +420,7 @@ export default function App() {
                 <span
                   style={{ fontWeight: 700, fontSize: 15, color: '#131A48' }}
                 >
-                  Cart Total
+                  Final Cart Total
                 </span>
                 <span
                   style={{ fontWeight: 700, fontSize: 18, color: '#131A48' }}

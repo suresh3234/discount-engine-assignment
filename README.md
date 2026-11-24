@@ -61,4 +61,11 @@ A discount evaluation engine that ingests discount rules and shopping cart items
 
 ## DECISIONS
 
-<!-- Document architectural decisions, trade-offs, and design rationales here -->
+### 1. Cart-Level Offer Resolution & Stacking Consistency
+- **Decision:** If multiple cart-level rules qualify (i.e. `subtotal >= min_cart_value`), non-stackable cart rules compete, and the rule yielding the largest rupee discount on the subtotal is applied. Eligible rules marked `stackable: true` compound on top of the winning non-stackable rule (or apply sequentially if no non-stackable rule matches). Both percentage and flat discount types are supported and clamped at the remaining subtotal so totals never go negative.
+- **Why:** Maintains strict consistency between item-level and cart-level promotion semantics. Customers always receive the optimal non-stackable promotion while merchants can run stackable cart incentives (e.g. flat coupon + cart threshold percentage).
+- **Alternative:** Restricting cart offers to a single non-stackable rule or adding percentages additively. Additive percentages risk exceeding 100%, whereas sequential application safely reduces the subtotal.
+
+### 2. Customer-Friendly Threshold Feedback (Near-Miss Tradeoff)
+- **Decision:** When the cart subtotal is below all cart offer thresholds, no cart discount deduction row appears in the summary table. Instead, the engine identifies the closest threshold and provides a customer-friendly hint (e.g. `"Add Rs.1 more to unlock 10% off the cart"`).
+- **Why:** Solves the boundary tradeoff for orders just under the threshold (e.g. Rs.3,999 vs Rs.4,000) by incentivizing upsell rather than failing silently or cluttering the summary with a Rs.0 discount line.

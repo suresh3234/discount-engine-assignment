@@ -204,22 +204,61 @@ describe('applyCartDiscount', () => {
     expect(r.reasoning).toBe('')
   })
 
-  it('null cart rules → subtotal unchanged', () => {
+  it('null cart rules or zero subtotal → subtotal unchanged', () => {
     const r = applyCartDiscount(5000, null)
     expect(r.discount).toBe(0)
     expect(r.finalTotal).toBe(5000)
+    expect(applyCartDiscount(0, CART_RULES).discount).toBe(0)
   })
 
-  it('picks best cart rule when several are eligible', () => {
+  it('multiple non-stackable cart rules: picks rule giving largest rupee saving', () => {
     const rules = [
-      { ruleId: 'C1', type: 'percentage', value: 5,  minCartTotal: 2000 },
-      { ruleId: 'C2', type: 'percentage', value: 10, minCartTotal: 4000 },
-      { ruleId: 'C3', type: 'flat',       value: 300, minCartTotal: 3000 },
+      { ruleId: 'C1', type: 'percentage', value: 5,  minCartTotal: 2000, stackable: false },
+      { ruleId: 'C2', type: 'percentage', value: 10, minCartTotal: 4000, stackable: false },
+      { ruleId: 'C3', type: 'flat',       value: 300, minCartTotal: 3000, stackable: false },
     ]
     const r = applyCartDiscount(5000, rules)
-    // C1: 250, C2: 500, C3: 300 → C2 wins
+    // C1: 250, C2: 500, C3: 300 → C2 wins (500 saved)
     expect(r.discount).toBe(500)
+    expect(r.finalTotal).toBe(4500)
     expect(r.appliedRule).toBe('C2')
+    expect(r.skippedRules).toContain('C1')
+    expect(r.skippedRules).toContain('C3')
+  })
+
+  it('multiple cart rules with stackable: winner applies first, stackable applies on top', () => {
+    const rules = [
+      { ruleId: 'C_WIN',   type: 'flat',       value: 500, minCartTotal: 3000, stackable: false },
+      { ruleId: 'C_SKIP',  type: 'flat',       value: 200, minCartTotal: 2000, stackable: false },
+      { ruleId: 'C_STACK', type: 'percentage', value: 10,  minCartTotal: 4000, stackable: true },
+    ]
+    // Subtotal: 5000.
+    // Winner: C_WIN (500 off) -> remaining 4500.
+    // Stackable: C_STACK (10% of 4500 = 450 off) -> remaining 4050.
+    // Total discount: 500 + 450 = 950.
+    const r = applyCartDiscount(5000, rules)
+    expect(r.discount).toBe(950)
+    expect(r.finalTotal).toBe(4050)
+    expect(r.appliedRules).toEqual(['C_WIN', 'C_STACK'])
+    expect(r.skippedRules).toEqual(['C_SKIP'])
+  })
+
+  it('flat-type cart rule applies and clamps at subtotal if larger', () => {
+    const rules = [
+      { ruleId: 'FLAT_BIG', type: 'flat', value: 1000, minCartTotal: 500, stackable: false },
+    ]
+    const r = applyCartDiscount(600, rules)
+    expect(r.discount).toBe(600)
+    expect(r.finalTotal).toBe(0)
+  })
+
+  it('supports min_cart_value property alias', () => {
+    const rules = [
+      { ruleId: 'VAL_ALIAS', type: 'percentage', value: 10, minCartValue: 2000 },
+    ]
+    const r = applyCartDiscount(2500, rules)
+    expect(r.discount).toBe(250)
+    expect(r.finalTotal).toBe(2250)
   })
 })
 

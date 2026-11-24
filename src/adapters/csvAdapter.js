@@ -83,19 +83,30 @@ export function parseRulesCSV(csvText) {
         return
       }
 
-      const minCartTotal = parseFloat(row.min_cart_total)
+      const minCartRaw =
+        row.min_cart_value !== undefined && row.min_cart_value !== ''
+          ? row.min_cart_value
+          : row.min_cart_total
+      const minCartTotal = parseFloat(minCartRaw)
       if (isNaN(minCartTotal) || minCartTotal <= 0) {
         errors.push(
-          `Row ${rowNum}: min_cart_total must be a positive number for cart rules, got "${row.min_cart_total}"`,
+          `Row ${rowNum}: min_cart_value (or min_cart_total) must be a positive number for cart rules, got "${minCartRaw}"`,
         )
         return
       }
 
+      const stackableStr = (row.stackable || '').trim().toLowerCase()
+      const stackable =
+        stackableStr === 'true' || stackableStr === '1' || stackableStr === 'yes'
+
       cartRules.push({
         ruleId: row.rule_id.trim(),
+        scope: 'cart',
         type,
         value,
+        stackable,
         minCartTotal: Math.round(minCartTotal),
+        minCartValue: Math.round(minCartTotal),
       })
       return
     }
