@@ -5,7 +5,7 @@
  * Wires together input adapters → engine → display.
  */
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import CsvUploader from './components/CsvUploader.jsx'
 import DataTable from './components/DataTable.jsx'
 import ErrorBanner from './components/ErrorBanner.jsx'
@@ -210,6 +210,20 @@ const S = {
   totalValue: { fontWeight: 700, fontSize: 16, color: '#131A48' },
 }
 
+const DEFAULT_RULES_CSV = `rule_id,scope,applies_to,type,value,stackable,min_cart_value
+RULE-01,brand,Natura Casa,percentage,15,false,
+RULE-02,brand,Natura Casa,flat,150,false,
+RULE-03,platform,Flipkart,percentage,10,true,
+RULE-04,cart,,percentage,10,false,4000`
+
+const DEFAULT_CART_CSV = `item_id,product,brand,platform,base_price
+ITEM-01,Cushion Cover,Natura Casa,Amazon India,1299
+ITEM-02,Bed Sheet Set,Natura Casa,Flipkart,849
+ITEM-03,Wall Shelf,LivSpace Pro,Amazon India,599
+ITEM-04,Ceramic Vase,LivSpace Pro,Noon,2499
+ITEM-05,Cutting Board,Nordic Basics,Amazon India,449
+ITEM-06,Desk Organiser,Nordic Basics,Flipkart,899`
+
 // ── Component ────────────────────────────────────────────────────
 
 export default function App() {
@@ -226,6 +240,34 @@ export default function App() {
   const [pdfSkipped, setPdfSkipped] = useState([])
   const [pdfWarnings, setPdfWarnings] = useState([])
   const [previousCart, setPreviousCart] = useState(null)
+
+  const [results, setResults] = useState(null)
+  const [cartDiscountResult, setCartDiscountResult] = useState(null)
+
+  function loadSampleData() {
+    const { itemRules, cartRules: cr } = parseRulesCSV(DEFAULT_RULES_CSV)
+    const { data: items } = parseCartCSV(DEFAULT_CART_CSV)
+    setRules(itemRules)
+    setCartRules(cr)
+    setRulesErr([])
+    setRulesFileName('rules.csv (sample)')
+    setCartItems(items)
+    setCartErrors([])
+    setCartFileName('cart.csv (sample)')
+    setPdfSkipped([])
+    setPdfWarnings([])
+    setPreviousCart(null)
+
+    const res = processCart(items, itemRules)
+    setResults(res)
+    const subtotal = cartTotal(res)
+    setCartDiscountResult(applyCartDiscount(subtotal, cr))
+  }
+
+  // Auto-populate with sample rules and cart items on mount
+  useEffect(() => {
+    loadSampleData()
+  }, [])
 
   // ── Handlers ──
 
@@ -374,10 +416,30 @@ export default function App() {
     <div style={S.page}>
       {/* Header */}
       <div style={S.header}>
-        <div style={S.logoTxt}>
-          O<span style={S.logoSpan}>pp</span>tra
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
+          <div style={S.logoTxt}>
+            O<span style={S.logoSpan}>pp</span>tra
+          </div>
+          <div style={S.headerSub}>Discount Engine</div>
         </div>
-        <div style={S.headerSub}>Discount Engine</div>
+        <button
+          type="button"
+          onClick={loadSampleData}
+          style={{
+            background: 'rgba(255, 255, 255, 0.1)',
+            border: '1px solid rgba(255, 255, 255, 0.3)',
+            color: '#fff',
+            borderRadius: 4,
+            padding: '0.35rem 0.75rem',
+            fontSize: 12,
+            fontWeight: 600,
+            cursor: 'pointer',
+            transition: 'background 0.15s',
+          }}
+          title="Reset rules and cart to standard sample data"
+        >
+          ⚡ Reset to Sample Data
+        </button>
       </div>
 
       <div style={S.main}>

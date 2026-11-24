@@ -6,8 +6,7 @@ A production-ready discount evaluation engine that ingests promotion rules and s
 
 ## 1. Live Demo URL
 
-- **Vercel Deployment**: [https://discount-engine-assignment.vercel.app](https://discount-engine-assignment.vercel.app)  
-  *(If deploying to your own Vercel team/subdomain, paste your live URL here)*
+- **Vercel Live Deployment**: [https://discount-engine-assignment-ashen.vercel.app](https://discount-engine-assignment-ashen.vercel.app)
 
 ---
 
