@@ -31,12 +31,14 @@ A production-ready discount evaluation engine that ingests promotion rules and s
    Open [http://localhost:5173](http://localhost:5173) in your browser.
 
 > [!NOTE]
-> **Environment Variable for Natural Language Parser (`ANTHROPIC_API_KEY`)**:
-> - Copy `.env.example` to `.env` and provide your Anthropic API key to enable live Claude 3.5 Haiku natural language parsing:
+> **Free Environment Variable for Natural Language Parser (`GEMINI_API_KEY`)**:
+> - We recommend using the **Google Gemini API**, which is **100% free** with no credit card required at [Google AI Studio](https://aistudio.google.com/).
+> - Copy `.env.example` to `.env` and provide your API key:
 >   ```bash
->   ANTHROPIC_API_KEY=sk-ant-api03-...
+>   GEMINI_API_KEY=AIzaSy...
 >   ```
-> - **What happens without it?** The system includes a built-in deterministic heuristic fallback parser in `/api/parse-rule.js` and the client adapter. Standard evaluation prompts (e.g. *"20% off for Natura Casa brand, stackable"*, *"Rs.100 flat discount on Flipkart"*, *"10% off if cart value is more than Rs.5,000"*, and ambiguous queries) parse seamlessly offline for evaluation and local demos even if no API key is configured. Arbitrary un-templated text without an API key will safely trigger an unresolvable prompt requesting an API key.
+> - *Alternatives supported:* You can also use **Groq** (`GROQ_API_KEY`, free at [console.groq.com](https://console.groq.com/)) or **Anthropic** (`ANTHROPIC_API_KEY`).
+> - **What happens without an API key?** The system includes a built-in deterministic heuristic fallback parser in `/api/parse-rule.js` and the client adapter. Standard evaluation prompts (e.g. *"20% off for Natura Casa brand, stackable"*, *"Rs.100 flat discount on Flipkart"*, *"10% off if cart value is more than Rs.5,000"*, and ambiguous queries) parse seamlessly offline for evaluation and local demos even if no API key is configured. Arbitrary un-templated text without an API key will safely trigger an unresolvable prompt requesting a free API key.
 
 ---
 
@@ -56,7 +58,7 @@ A production-ready discount evaluation engine that ingests promotion rules and s
 
 ### Natural Language Rules ("Describe a Rule in Plain English")
 - **Decoupled Adapter** (`src/inputs/nlRule/`): Transforms plain English text into canonical `DiscountRule` or `CartRule` types without touching the calculator.
-- **Serverless API Proxy** (`/api/parse-rule`): Calls the Anthropic Messages API (`claude-3-5-haiku-20241022`) using a server-side environment variable, keeping the secret key safe from browser exposure.
+- **Serverless API Proxy** (`/api/parse-rule`): Calls Google Gemini API (`GEMINI_API_KEY`, 100% free with no credit card at AI Studio), Groq (`GROQ_API_KEY`), or Anthropic using server-side environment variables, keeping secret keys safe from browser exposure.
 - **Strict Zod Client Validation**: Validates output structure (enums, value $> 0$, percentage $\le 100$, applies_to requirements, min_cart_value thresholds).
 - **Resilient Error Handling**: Strips markdown code fences, retries once on malformed JSON, and surfaces helpful error messages for ambiguous queries (e.g. *"Give a discount for big orders"*).
 - **Confirmation Flow & Auto-IDs**: Renders a parsed preview card with `[Confirm & add]` and `[Discard]`. On confirm, assigns the next rule ID (`RULE-05`) and immediately re-runs calculations on the current cart.
@@ -99,7 +101,7 @@ src/
   App.jsx                     ← UI orchestration and reactive state
   main.jsx                    ← Application entry point
 api/
-  parse-rule.js               ← Vercel serverless function (ANTHROPIC_API_KEY)
+  parse-rule.js               ← Vercel serverless function (GEMINI_API_KEY / GROQ_API_KEY)
 sample-data/
   rules.csv                   ← Baseline discount rules fixture
   cart.csv                    ← Baseline cart items fixture
@@ -140,8 +142,8 @@ The calculation engine (`src/engine/discountEngine.js`) remains completely untou
 - **Alternative:** Floating-point precision throughout with single end-of-cart rounding. Rejected because displayed line-item totals would show fractional paise or fail to sum up to the displayed subtotal (e.g. Rs.1,104.15 + ...).
 
 ### 2. Server-Side LLM Proxy vs. Client-Side Key
-- **Decision:** Natural language parsing is routed through a Vercel serverless function (`/api/parse-rule`) that accesses `ANTHROPIC_API_KEY` exclusively on the server.
-- **Why:** Shipping API credentials to client-side bundles exposes the key in network tabs and invites API theft and quota exhaustion.
+- **Decision:** Natural language parsing is routed through a Vercel serverless function (`/api/parse-rule`) that accesses `GEMINI_API_KEY` (or `GROQ_API_KEY` / `ANTHROPIC_API_KEY`) exclusively on the server.
+- **Why:** Shipping API credentials to client-side bundles exposes the key in network tabs and invites API theft and quota exhaustion. Free providers like Google Gemini offer a generous free tier (15 requests/min, 1,500/day) with zero credit card required, making it easy to run without expense.
 - **Alternative:** Pure client-side calls (`dangerouslyAllowBrowser: true`). Acceptable only for quick throwaway prototypes, but unsafe for public deployments.
 
 ### 3. Confirmation Step Design (Agree / Disagree)

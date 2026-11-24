@@ -2,8 +2,10 @@
  * api/parse-rule.js
  *
  * Serverless function for Vercel (POST /api/parse-rule).
- * Calls the Anthropic Messages API using the server-side ANTHROPIC_API_KEY environment variable.
- * Ensures the API key never ships to the browser.
+ * Calls Google Gemini API (GEMINI_API_KEY - 100% Free at aistudio.google.com),
+ * or Groq Cloud (GROQ_API_KEY - Free at console.groq.com),
+ * or Anthropic Messages API (ANTHROPIC_API_KEY).
+ * Ensures API keys stay on the server and never ship to the browser.
  */
 
 const SYSTEM_PROMPT = `You are an expert natural language discount rule parser for an e-commerce platform.
@@ -90,10 +92,12 @@ export default async function handler(req, res) {
       return
     }
 
-    const apiKey = process.env.ANTHROPIC_API_KEY
+    const geminiKey = process.env.GEMINI_API_KEY
+    const groqKey = process.env.GROQ_API_KEY
+    const anthropicKey = process.env.ANTHROPIC_API_KEY
 
-    // Fallback if ANTHROPIC_API_KEY is not configured in environment
-    if (!apiKey) {
+    // Fallback if no LLM API key is configured in environment
+    if (!geminiKey && !groqKey && !anthropicKey) {
       // Offline fallback pattern matcher so local / demo environments function without an API key
       const lower = text.toLowerCase()
       if (/give (a )?discount/i.test(text) && !/\d+/.test(text)) {
@@ -146,42 +150,118 @@ export default async function handler(req, res) {
 
       res.status(200).json({
         unresolvable: true,
-        reason: "ANTHROPIC_API_KEY environment variable is not set and the description could not be matched by local patterns.",
-        missing: ["ANTHROPIC_API_KEY or clearer rule description"],
+        reason: "GEMINI_API_KEY environment variable is not set and the description could not be matched by local patterns.",
+        missing: ["GEMINI_API_KEY (free at aistudio.google.com) or clearer rule description"],
       })
       return
     }
 
-    // Call Anthropic Messages API
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-3-5-haiku-20241022',
-        max_tokens: 400,
-        temperature: 0,
-        system: SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: text }],
-      }),
-    })
+    let parsed = null
 
-    if (!response.ok) {
-      const errText = await response.text()
-      res.status(502).json({
-        unresolvable: true,
-        reason: `Anthropic API error (${response.status}): ${errText}`,
-        missing: [],
+    // 1. Google Gemini API (Recommended FREE option: 15 RPM, 1,500 RPD, no credit card required)
+    if (geminiKey) {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            systemInstruction: {
+              parts: [{ text: SYSTEM_PROMPT }],
+            },
+            contents: [
+              {
+                parts: [{ text }],
+              },
+            ],
+            generationConfig: {
+              temperature: 0,
+              responseMimeType: 'application/json',
+            },
+          }),
+        }
+      )
+
+      if (!response.ok) {
+        const errText = await response.text()
+        res.status(502).json({
+          unresolvable: true,
+          reason: `Gemini API error (${response.status}): ${errText}`,
+          missing: [],
+        })
+        return
+      }
+
+      const data = await response.json()
+      const content = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
+      parsed = JSON.parse(cleanJson(content))
+    }
+    // 2. Groq Cloud API (Alternative FREE option: Llama 3.3 70B, OpenAI-compatible)
+    else if (groqKey) {
+      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${groqKey}`,
+        },
+        body: JSON.stringify({
+          model: 'llama-3.3-70b-versatile',
+          temperature: 0,
+          response_format: { type: 'json_object' },
+          messages: [
+            { role: 'system', content: SYSTEM_PROMPT },
+            { role: 'user', content: text },
+          ],
+        }),
       })
-      return
+
+      if (!response.ok) {
+        const errText = await response.text()
+        res.status(502).json({
+          unresolvable: true,
+          reason: `Groq API error (${response.status}): ${errText}`,
+          missing: [],
+        })
+        return
+      }
+
+      const data = await response.json()
+      const content = data.choices?.[0]?.message?.content || ''
+      parsed = JSON.parse(cleanJson(content))
+    }
+    // 3. Anthropic Messages API (Claude 3.5 Haiku)
+    else if (anthropicKey) {
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': anthropicKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-3-5-haiku-20241022',
+          max_tokens: 400,
+          temperature: 0,
+          system: SYSTEM_PROMPT,
+          messages: [{ role: 'user', content: text }],
+        }),
+      })
+
+      if (!response.ok) {
+        const errText = await response.text()
+        res.status(502).json({
+          unresolvable: true,
+          reason: `Anthropic API error (${response.status}): ${errText}`,
+          missing: [],
+        })
+        return
+      }
+
+      const data = await response.json()
+      const content = data.content?.[0]?.text || ''
+      parsed = JSON.parse(cleanJson(content))
     }
 
-    const data = await response.json()
-    const content = data.content?.[0]?.text || ''
-    const parsed = JSON.parse(cleanJson(content))
     res.status(200).json(parsed)
   } catch (err) {
     res.status(500).json({
