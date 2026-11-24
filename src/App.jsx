@@ -9,6 +9,7 @@ import { useState } from 'react'
 import CsvUploader from './components/CsvUploader.jsx'
 import DataTable from './components/DataTable.jsx'
 import ErrorBanner from './components/ErrorBanner.jsx'
+import NlRuleInput from './components/NlRuleInput.jsx'
 import { parseRulesCSV, parseCartCSV } from './adapters/csvAdapter.js'
 import {
   processCart,
@@ -252,6 +253,46 @@ export default function App() {
     )
   }
 
+  function handleAddNlRule(parsedRule) {
+    const allRuleIds = [
+      ...rules.map((r) => r.ruleId),
+      ...cartRules.map((r) => r.ruleId),
+    ]
+    const idsNums = allRuleIds
+      .map((id) => {
+        const m = (id || '').match(/^RULE-(\d+)$/i)
+        return m ? parseInt(m[1], 10) : 0
+      })
+      .filter((n) => !isNaN(n))
+    const nextNum = (idsNums.length > 0 ? Math.max(...idsNums) : 0) + 1
+    const nextRuleId = `RULE-${String(nextNum).padStart(2, '0')}`
+
+    const newRuleWithId = { ...parsedRule, ruleId: nextRuleId }
+
+    let updatedRules = rules
+    let updatedCartRules = cartRules
+
+    if (newRuleWithId.scope === 'cart') {
+      updatedCartRules = [...cartRules, newRuleWithId]
+      setCartRules(updatedCartRules)
+    } else {
+      updatedRules = [...rules, newRuleWithId]
+      setRules(updatedRules)
+    }
+
+    // Only on Confirm: add the rule to in-memory state and re-run the engine on the current cart
+    if (cartItems.length > 0) {
+      const res = processCart(cartItems, updatedRules)
+      setResults(res)
+      const subtotal = cartTotal(res)
+      setCartDiscountResult(
+        updatedCartRules.length > 0
+          ? applyCartDiscount(subtotal, updatedCartRules)
+          : null,
+      )
+    }
+  }
+
   const canCalculate = rules.length > 0 && cartItems.length > 0
   const totalRulesCount = rules.length + cartRules.length
 
@@ -268,6 +309,9 @@ export default function App() {
       </div>
 
       <div style={S.main}>
+        {/* Natural Language Rule Input */}
+        <NlRuleInput onConfirmRule={handleAddNlRule} />
+
         {/* Upload row */}
         <div style={S.grid2}>
           {/* Rules upload */}

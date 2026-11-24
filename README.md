@@ -69,3 +69,8 @@ A discount evaluation engine that ingests discount rules and shopping cart items
 ### 2. Customer-Friendly Threshold Feedback (Near-Miss Tradeoff)
 - **Decision:** When the cart subtotal is below all cart offer thresholds, no cart discount deduction row appears in the summary table. Instead, the engine identifies the closest threshold and provides a customer-friendly hint (e.g. `"Add Rs.1 more to unlock 10% off the cart"`).
 - **Why:** Solves the boundary tradeoff for orders just under the threshold (e.g. Rs.3,999 vs Rs.4,000) by incentivizing upsell rather than failing silently or cluttering the summary with a Rs.0 discount line.
+
+### 3. Serverless LLM Architecture for Natural Language Rules (`/api/parse-rule`)
+- **Decision:** Natural language rule descriptions are sent to a serverless API function (`/api/parse-rule` on Vercel) that communicates with the Anthropic Messages API (`claude-3-5-haiku-20241022`) using a secure server-side environment variable (`ANTHROPIC_API_KEY`). The client adapter (`src/inputs/nlRule/`) validates the returned structure using a strict Zod schema before outputting canonical `DiscountRule` or `CartRule` objects, with an automatic retry on invalid JSON.
+- **Why:** Prevents secret API keys from leaking into the browser bundle or client network tabs, protecting against quota depletion and key theft.
+- **Alternative:** Pure client-side API calls (e.g. `dangerouslyAllowBrowser: true`). Exposing the Anthropic API key in client-side code is acceptable only for temporary local demos or throwaway testing keys, but unsafe for public deployments.
